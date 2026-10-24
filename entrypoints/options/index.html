@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spliit for BECU Money Manager</title>
+    <meta name="manifest.open_in_tab" content="true" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #1d2433;
+        --muted: #667085;
+        --border: #e4e7ec;
+        --accent: #007c89;
+        --accent-fg: #ffffff;
+        --danger: #b42318;
+        --ok: #137333;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1c1f26;
+          --fg: #e6e8ec;
+          --muted: #9aa3b2;
+          --border: #343a46;
+          --accent: #3fb3c0;
+          --accent-fg: #0d1117;
+          --danger: #f28b82;
+          --ok: #6fcf8a;
+        }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+      main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      h2 { font-size: 15px; margin: 28px 0 8px; }
+      p { margin: 0 0 12px; color: var(--muted); }
+      a { color: var(--accent); }
+      input, select, button { font: inherit; color: inherit; }
+      input[type='url'], select { min-height: 32px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+      input[type='url'] { flex: 1; min-width: 0; }
+      button { min-height: 32px; padding: 4px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); cursor: pointer; font-weight: 600; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; }
+      li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px 12px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--border); }
+      li:first-child { border-top: 0; }
+      li .name { font-weight: 600; }
+      li .origin { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+      .empty { padding: 12px; color: var(--muted); }
+      #status { min-height: 1.5em; margin-top: 8px; font-size: 13px; }
+      #status.error { color: var(--danger); }
+      #status.ok { color: var(--ok); }
+      label.option { display: flex; gap: 8px; align-items: center; }
+      .rules { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px dashed var(--border); font-size: 13px; }
+      .rules-head { display: flex; gap: 12px; align-items: baseline; }
+      .rule { display: flex; gap: 12px; align-items: baseline; }
+      .rule span { flex: 1; min-width: 0; }
+      .hint { color: var(--muted); font-size: 12px; }
+      .hint.error { color: var(--danger); }
+      button.link { border: 0; background: none; padding: 0; min-height: 0; color: var(--accent); font-weight: 600; font-size: 13px; }
+      button.link:disabled { opacity: .5; cursor: default; }
+      .draft { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
+      .draft table { border-collapse: collapse; }
+      .draft td { padding: 3px 10px 3px 0; }
+      .draft input[type='text'] { width: 70px; min-height: 28px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); text-align: right; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Spliit for BECU Money Manager</h1>
+      <p>Open a transaction in Money Manager and click <b>Add to Spliit</b> to share it with a Spliit group.</p>
+
+      <h2>Groups</h2>
+      <ul id="groups"></ul>
+      <form id="add" class="row" style="margin-top: 12px">
+        <input id="link" type="url" placeholder="https://spliit.app/groups/…" aria-label="Spliit group link" required />
+        <button class="primary" type="submit">Add group</button>
+      </form>
+      <div id="status" role="status"></div>
+      <p>Paste the link to a group (from Spliit's Share button or the address bar). Groups on a self-hosted Spliit work too; Chrome will ask to let the extension reach that server.</p>
+
+      <h2>Money Manager memo</h2>
+      <label class="option"><input id="memo" type="checkbox" /> Note new Spliit expenses in the transaction's memo, with a link (the default; you can also change it per transaction)</label>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

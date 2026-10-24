@@ -1,0 +1,6 @@
+node_modules/
+.output/
+.wxt/
+*.zip
+# Real captures and saved pages contain personal data.
+samples/
