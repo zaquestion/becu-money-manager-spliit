@@ -4,6 +4,7 @@ Copy-paste text for the Developer Dashboard. Upload `.output/becu-mx-spliit-<ver
 (built with `pnpm zip`). Store icon: `store/icon-128.png`. Screenshots (1280×800):
 `store/screenshot-1-drawer.png`, `store/screenshot-2-dialog.png`, `store/screenshot-3-settings.png`.
 Icons come from `scripts/make-icons.py`. Extension ID: `igmmkkemkiclhbmghflfgacpnonadgbb`.
+Firefox: see `firefox-listing.md`.
 
 ## Name
 

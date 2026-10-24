@@ -1,6 +1,6 @@
 # Spliit for BECU Money Manager
 
-Chromium extension (TypeScript + [WXT](https://wxt.dev)) that adds an
+Chrome and Firefox extension (TypeScript + [WXT](https://wxt.dev)) that adds an
 **Add to Spliit** button to a transaction's details in BECU Money Manager
 (MX's widget at `widgets.moneydesktop.com`), so shared purchases go into a
 [Spliit](https://github.com/spliit-app/spliit) group straight from the bank's
@@ -16,6 +16,10 @@ pnpm test
 
 Open `chrome://extensions`, enable Developer mode, click **Load unpacked** and
 pick `.output/chrome-mv3`.
+
+For Firefox (140 or later), `pnpm dev:firefox` opens a Firefox with the
+extension loaded. Or `pnpm build:firefox`, then in `about:debugging` → This
+Firefox → **Load Temporary Add-on…** pick `.output/firefox-mv3/manifest.json`.
 
 ## Use
 
@@ -92,7 +96,7 @@ note stays until you edit it out.
   its own conversion (×100 for even/shares splits, cents for by-amount).
   Refunds and credits become negative expenses.
 - **Self-hosted Spliit**: groups on other servers work. Add them from the
-  settings page so Chrome can ask for access to that origin.
+  settings page so the browser can ask for access to that origin.
 
 ## Limits / unverified
 
