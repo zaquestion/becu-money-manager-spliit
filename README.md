@@ -96,9 +96,6 @@ note stays until you edit it out.
 
 ## Limits / unverified
 
-- Not yet tried against the live Money Manager or spliit.app: the requests are
-  built from Spliit's source (main as of 2026-10-19) and from captures in
-  `becu_mx_amz`, and the UI is tested against a saved drawer in happy-dom.
 - Duplicate detection relies on Spliit's search covering notes (spliit #601).
   After each add, the extension searches for the new expense and warns if it
   can't be found that way.
