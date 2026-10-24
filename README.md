@@ -118,3 +118,7 @@ note stays until you edit it out.
   warning). No conversion is done.
 - By-amount splits can't be used for refunds: Spliit rejects shares of zero or
   less.
+
+## License
+
+[AGPL-3.0-or-later](LICENSE). Copyright 2026 Zaq Question.

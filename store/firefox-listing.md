@@ -28,6 +28,11 @@ Same as the Chrome listing's detailed description (`listing.md`).
 
 Other
 
+## License
+
+GNU Affero General Public License v3.0 or later (pick "GNU Affero General Public
+License, version 3.0" in the Developer Hub; the repo's `LICENSE` file).
+
 ## Support
 
 - Website: https://github.com/zaquestion/becu-money-manager-spliit
