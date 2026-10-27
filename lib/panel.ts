@@ -1,10 +1,12 @@
-// The "Add to Spliit" dialog, opened from the Transaction Details drawer.
-// Runs in Money Manager's ISOLATED world: MX lookups and the memo edit go to
+// The "Add to Spliit" dialog, opened from the Transaction Details drawer,
+// and for Sum and Split, from the Transactions tab's search bar: the listed
+// transactions added as one expense. Runs in Money Manager's ISOLATED world: MX lookups and the memo edit go to
 // the MAIN world over the bridge, Spliit requests go to the background worker.
 import type { Status } from './bridge';
 import { callMain, connectBridge } from './bridge';
 import type { ButtonState } from './drawer';
 import { setButton, watchDrawer } from './drawer';
+import { collectRows, dateRange, watchSearchBar } from './list';
 import type { FindResult, Hit } from './messages';
 import { ask } from './messages';
 import type { DrawerTarget, MxTransaction } from './mx/match';
@@ -13,7 +15,7 @@ import { findRule, ruleLabel } from './rules';
 import { guessCategory } from './spliit/categories';
 import type { Category, SpliitGroup } from './spliit/client';
 import { parseGroupLink } from './spliit/client';
-import { buildNotes, memoWithSpliit, spliitMemo, today } from './spliit/notes';
+import { buildNotes, buildSumNotes, memoWithSpliit, spliitMemo, today } from './spliit/notes';
 import type { SplitMode } from './spliit/split';
 import { apportion, computeSplit } from './spliit/split';
 import type { GroupRef, Settings } from './store';
@@ -45,7 +47,25 @@ interface Done {
   url: string;
   groupName: string;
   memo: 'written' | 'skipped' | { error: string };
+  memos: number; // transactions whose memo was to be noted
   findable: boolean;
+}
+
+// Sum and Split: the transactions listed for a search, as one expense.
+interface SumItem {
+  tx: MxTransaction;
+  category: string; // MX category, as listed
+  included: boolean;
+  added?: Hit[]; // already in Spliit
+}
+
+interface Sum {
+  term: string;
+  range?: { start: string; end: string }; // the date filter, when it can be read
+  items?: SumItem[]; // undefined while the list is read
+  unmatched: number; // listed rows not found among the loaded transactions
+  checking: boolean; // looking the items up in Spliit
+  checkErrors: string[];
 }
 
 const state = {
@@ -54,6 +74,7 @@ const state = {
   button: undefined as HTMLButtonElement | undefined,
   candidates: undefined as MxTransaction[] | undefined,
   tx: undefined as MxTransaction | undefined,
+  sum: undefined as Sum | undefined,
   settings: undefined as Settings | undefined,
   group: undefined as GroupRef | undefined,
   groups: new Map<string, Load<SpliitGroup>>(),
@@ -92,6 +113,11 @@ const toCents = (text: string) => {
 const signedCents = (tx: MxTransaction) => (tx.credit ? -tx.cents : tx.cents);
 const shortDate = (date: string) =>
   new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+// "2026-09-26" -> "2026-09-30"
+export const endOfMonth = (date: string) => {
+  const [y, m] = date.split('-').map(Number);
+  return new Date(Date.UTC(y!, m!, 0)).toISOString().slice(0, 10);
+};
 
 // ---- Looking transactions up in Spliit (shared with the drawer button)
 
@@ -147,13 +173,14 @@ async function onDrawerShow(target: DrawerTarget, button: HTMLButtonElement, rec
 
 // ---- Dialog state
 
-async function openDialog(target: DrawerTarget, button: HTMLButtonElement) {
+function reset(changes: Partial<typeof state>) {
   Object.assign(state, {
     open: true,
-    target,
-    button,
+    target: undefined,
+    button: undefined,
     candidates: undefined,
     tx: undefined,
+    sum: undefined,
     lookup: undefined,
     addAnyway: false,
     form: undefined,
@@ -162,16 +189,25 @@ async function openDialog(target: DrawerTarget, button: HTMLButtonElement) {
     done: undefined,
     adding: false,
     addError: undefined,
+    ...changes,
   });
+}
+
+function pickGroup(settings: Settings) {
+  state.settings = settings;
+  state.group = settings.groups.find((g) => groupKey(g) === settings.lastGroup) ?? settings.groups[0];
+  state.adding = !settings.groups.length;
+}
+
+async function openDialog(target: DrawerTarget, button: HTMLButtonElement) {
+  reset({ target, button });
   render();
   const [settings, candidates] = await Promise.all([
     loadSettings(),
     callMain<MxTransaction[]>({ op: 'match', target }).catch(() => [] as MxTransaction[]),
   ]);
-  state.settings = settings;
+  pickGroup(settings);
   state.candidates = candidates;
-  state.group = settings.groups.find((g) => groupKey(g) === settings.lastGroup) ?? settings.groups[0];
-  state.adding = !settings.groups.length;
   if (candidates.length === 1) selectTransaction(candidates[0]!);
   if (state.group) void selectGroup(state.group);
   render();
@@ -182,6 +218,66 @@ function selectTransaction(tx: MxTransaction) {
   state.form = undefined;
   if (state.group) initForm();
   runLookup();
+}
+
+async function openSum(term: string) {
+  const sum: Sum = { term, range: dateRange(), unmatched: 0, checking: false, checkErrors: [] };
+  reset({ sum });
+  render();
+  const rows = await collectRows();
+  const [settings, matched] = await Promise.all([
+    loadSettings(),
+    rows.length
+      ? callMain<(MxTransaction | null)[]>({ op: 'matchRows', targets: rows }).catch(() => rows.map(() => null))
+      : Promise.resolve([] as (MxTransaction | null)[]),
+  ]);
+  if (state.sum !== sum) return;
+  sum.items = matched.flatMap((tx, i) => (tx ? [{ tx, category: rows[i]!.category, included: true }] : []));
+  sum.unmatched = matched.length - sum.items.length;
+  pickGroup(settings);
+  if (state.group) void selectGroup(state.group);
+  checkSum(true);
+  render();
+}
+
+const sumItems = () => state.sum?.items?.filter((item) => item.included) ?? [];
+const sumCents = () => sumItems().reduce((total, item) => total + signedCents(item.tx), 0);
+
+function setSumAmount() {
+  const form = state.form;
+  if (!form || !state.sum) return;
+  form.amount = dollars(sumCents());
+  if (form.mode === 'BY_AMOUNT') fillValues();
+}
+
+// Looks each summed transaction up in Spliit. The first time, ones already
+// there are left out of the sum.
+function checkSum(first: boolean) {
+  const { sum, settings } = state;
+  if (!sum?.items?.length || !settings?.groups.length) return;
+  sum.checking = true;
+  const errors = new Set<string>();
+  const queue = [...sum.items];
+  // A few at a time: each is a couple of searches per group.
+  const worker = async () => {
+    for (let item = queue.shift(); item; item = queue.shift()) {
+      const result = await ask({ type: 'spliit:find', groups: settings.groups, tx: item.tx, fresh: !first });
+      if (!result.ok) {
+        errors.add(result.error);
+        continue;
+      }
+      result.value.errors.forEach((e) => errors.add(`${e.groupName}: ${e.error}`));
+      item.added = result.value.hits.filter((hit) => hit.exact);
+      if (first && item.added.length) item.included = false;
+    }
+  };
+  void Promise.all([worker(), worker(), worker(), worker()]).then(() => {
+    if (state.sum !== sum) return;
+    sum.checking = false;
+    sum.checkErrors = [...errors];
+    if (first) setSumAmount();
+    render();
+  });
 }
 
 function runLookup(fresh?: boolean) {
@@ -244,20 +340,41 @@ function categoryList(): Category[] {
   return load?.status === 'ready' ? load.value : [];
 }
 
-// Fills the form for the selected transaction and group, keeping what was
-// already typed when only the group changes.
+// What the form starts from: the drawer's transaction, or for Sum and Split
+// the search term, the total, and the date filter's last day (or failing
+// that, the end of the month of the latest transaction).
+function formSource() {
+  const { tx, target, sum } = state;
+  if (sum?.items?.length) {
+    const counts = new Map<string, number>();
+    for (const item of sumItems()) counts.set(item.category, (counts.get(item.category) ?? 0) + 1);
+    return {
+      title: sum.term.charAt(0).toUpperCase() + sum.term.slice(1),
+      amount: dollars(sumCents()),
+      date: sum.range?.end ?? endOfMonth(sum.items.map((item) => item.tx.date).sort().at(-1)!),
+      mxCategory: [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '',
+    };
+  }
+  if (tx && target) {
+    return { title: tx.payee || target.payee || tx.feed, amount: dollars(signedCents(tx)), date: target.date, mxCategory: target.category };
+  }
+  return undefined;
+}
+
+// Fills the form for the selected transaction (or sum) and group, keeping
+// what was already typed when only the group changes.
 function initForm() {
-  const { tx, target, group, settings } = state;
+  const { group, settings } = state;
   const info = groupInfo();
-  if (!tx || !target || !group || !settings || !info) return;
+  const source = formSource();
+  if (!source || !group || !settings || !info) return;
   const ids = info.participants.map((p) => p.id);
   const prev = state.form;
-  const mxCategory = target.category.toLowerCase();
   state.form = {
-    title: prev?.title ?? (tx.payee || target.payee || tx.feed),
-    amount: prev?.amount ?? dollars(signedCents(tx)),
-    date: prev?.date ?? target.date,
-    category: prev?.category ?? settings.categories[mxCategory] ?? guessCategory(target.category, categoryList()) ?? 0,
+    title: prev?.title ?? source.title,
+    amount: prev?.amount ?? source.amount,
+    date: prev?.date ?? source.date,
+    category: prev?.category ?? settings.categories[source.mxCategory.toLowerCase()] ?? guessCategory(source.mxCategory, categoryList()) ?? 0,
     paidBy: group.me && ids.includes(group.me) ? group.me : '',
     mode: 'EVENLY',
     included: new Set(),
@@ -334,18 +451,23 @@ async function addGroup(link: string) {
   }
   state.groups.set(groupKey(group), { status: 'ready', value: result.value });
   state.adding = false;
-  runLookup(true);
+  if (state.sum) checkSum(false);
+  else runLookup(true);
   await selectGroup(group);
 }
 
 async function submit() {
-  const { tx, group, settings, form, target } = state;
+  const { group, settings, form, sum } = state;
   const info = groupInfo();
-  if (!tx || !group || !settings || !form || !info || !target) return;
+  const source = formSource();
+  // The transactions this expense is for: one, or the sum's.
+  const txs = sum ? sumItems().map((item) => item.tx) : state.tx ? [state.tx] : [];
+  if (!group || !settings || !form || !info || !source) return;
   const amount = toCents(form.amount);
   const result = split();
-  state.error =
-    form.title.trim().length < 2
+  state.error = !txs.length
+    ? 'Tick at least one transaction'
+    : form.title.trim().length < 2
       ? 'Give it a title (2 characters or more)'
       : !amount
         ? 'Enter an amount'
@@ -356,7 +478,7 @@ async function submit() {
             : !result.ok
               ? result.error
               : undefined;
-  if (state.error || !result.ok || !amount) return render();
+  if (state.error || !result.ok || !amount || !txs.length) return render();
 
   state.saving = true;
   render();
@@ -364,7 +486,8 @@ async function submit() {
   const created = await ask({
     type: 'spliit:create',
     group: { ...group, me: form.paidBy },
-    tx,
+    // To check it can be found again; any of a sum's will do.
+    tx: txs[0]!,
     expense: {
       expenseDate: form.date,
       title: form.title.trim(),
@@ -373,7 +496,7 @@ async function submit() {
       paidBy: form.paidBy,
       paidFor: result.paidFor,
       splitMode: form.mode,
-      notes: buildNotes(form.notes, tx, addedOn),
+      notes: sum ? buildSumNotes(form.notes, sum.term, txs, addedOn) : buildNotes(form.notes, txs[0]!, addedOn),
     },
   });
   if (!created.ok) {
@@ -388,21 +511,28 @@ async function submit() {
   settings.writeMemo = form.writeMemo;
   // A rule's split isn't "the last one used" for categories without a rule.
   if (!form.rule) settings.lastSplit[groupKey(group)] = { mode: form.mode, participants: [...form.included] };
-  if (target.category) settings.categories[target.category.toLowerCase()] = form.category;
+  if (source.mxCategory) settings.categories[source.mxCategory.toLowerCase()] = form.category;
   void saveSettings(settings);
 
   let memo: Done['memo'] = 'skipped';
   if (form.writeMemo) {
     const note = spliitMemo(addedOn, info.name, created.value.url);
-    memo = await callMain({ op: 'setMemo', guid: tx.guid, memo: memoWithSpliit(tx.memo, note, created.value.url) }).then(
-      () => 'written' as const,
-      (err: Error) => ({ error: err.message }),
-    );
+    const failed: string[] = [];
+    // One at a time, as the widget itself edits them.
+    for (const tx of txs) {
+      await callMain({ op: 'setMemo', guid: tx.guid, memo: memoWithSpliit(tx.memo, note, created.value.url) }).catch((err: Error) =>
+        failed.push(err.message),
+      );
+    }
+    memo = !failed.length
+      ? 'written'
+      : { error: txs.length > 1 ? `${failed.length} of ${txs.length} failed: ${[...new Set(failed)].join('; ')}` : failed[0]! };
   }
   state.saving = false;
-  state.done = { url: created.value.url, groupName: info.name, memo, findable: created.value.findable };
+  state.done = { url: created.value.url, groupName: info.name, memo, memos: txs.length, findable: created.value.findable };
   render();
-  runLookup(true);
+  if (sum) checkSum(false);
+  else runLookup(true);
 }
 
 // ---- Rendering
@@ -475,6 +605,77 @@ function renderTransaction(): Node[] {
       }),
     );
   }
+  return out;
+}
+
+function renderSum(sum: Sum): Node[] {
+  if (!sum.items) return [h('div', { className: 'muted', textContent: 'Reading the transactions list…' })];
+  if (!sum.items.length) {
+    return [
+      h('p', {
+        className: 'callout warn',
+        textContent: sum.unmatched
+          ? `Couldn't find the ${sum.unmatched} listed transactions among those Money Manager has loaded. Reload Money Manager and try again.`
+          : `No transactions are listed for “${sum.term}”. Pick the dates on the Transactions tab, then try again.`,
+      }),
+    ];
+  }
+  const included = sumItems();
+  const rows = sum.items.map((item) => {
+    const { tx } = item;
+    const check = h('input', { type: 'checkbox', checked: item.included, disabled: !!state.done, 'aria-label': `Include ${tx.payee} on ${tx.date}` });
+    check.addEventListener('change', () => {
+      item.included = check.checked;
+      state.error = undefined;
+      setSumAmount();
+      render();
+    });
+    const added = item.added?.[0];
+    const status = added
+      ? h('a', { href: added.url, target: '_blank', rel: 'noopener', textContent: '✓ In Spliit', title: `${added.groupName}${added.addedOn ? `, added ${added.addedOn}` : ''}` })
+      : tx.pending
+        ? 'pending'
+        : '';
+    return h(
+      'tr',
+      { className: item.included ? '' : 'off' },
+      h('td', { className: 'check' }, check),
+      h('td', { className: 'date', textContent: shortDate(tx.date).replace(/, \d{4}$/, '') }),
+      h('td', { className: 'payee', textContent: tx.payee || tx.feed, title: [tx.feed, tx.accountName, tx.memo].filter(Boolean).join(' · ') }),
+      h('td', { className: 'status' }, status),
+      h('td', { className: 'share', textContent: `${tx.credit ? '+' : ''}${money(tx.cents)}` }),
+    );
+  });
+  const dates = sum.range ? [sum.range.start, sum.range.end] : sum.items.map((item) => item.tx.date).sort();
+  const out: Node[] = [
+    h(
+      'div',
+      { className: 'tx' },
+      h('span', { className: 'payee', textContent: `“${sum.term}”` }),
+      h('span', { className: 'amount', textContent: money(sumCents()) }),
+      h('span', {
+        className: 'sub',
+        textContent: `${included.length} of ${sum.items.length} listed · ${shortDate(dates[0]!)} – ${shortDate(dates.at(-1)!)}`,
+      }),
+      h('span', { className: 'sub', textContent: sum.checking ? 'Checking Spliit…' : '' }),
+    ),
+    h('div', { className: 'items' }, h('table', {}, h('tbody', {}, ...rows))),
+  ];
+  if (sum.unmatched) {
+    out.push(
+      h('p', {
+        className: 'callout warn',
+        textContent: `${sum.unmatched} listed transaction${sum.unmatched === 1 ? '' : 's'} couldn't be found among those Money Manager has loaded and ${sum.unmatched === 1 ? "isn't" : "aren't"} included. Reloading Money Manager may help.`,
+      }),
+    );
+  }
+  if (!state.done && sum.items.some((item) => item.added?.length)) {
+    out.push(h('p', { className: 'callout ok', textContent: 'Transactions already in Spliit are left out; tick them to add them again.' }));
+  }
+  if (!state.done && included.some((item) => item.tx.pending)) {
+    out.push(h('p', { className: 'callout warn', textContent: 'Some of these are still pending: their amounts can change when they post.' }));
+  }
+  for (const error of sum.checkErrors) out.push(h('p', { className: 'callout danger', textContent: `Couldn't check Spliit: ${error}` }));
   return out;
 }
 
@@ -704,7 +905,7 @@ function renderForm(): Node[] {
       h('label', { textContent: 'Notes' }),
       bind(h('textarea', { 'aria-label': 'Notes', placeholder: 'Optional; the bank details are added for you' }), 'notes'),
     ),
-    h('label', { className: 'option' }, memo, 'Note it in the Money Manager memo, with a link'),
+    h('label', { className: 'option' }, memo, state.sum ? "Note it in each transaction's Money Manager memo, with a link" : 'Note it in the Money Manager memo, with a link'),
     h('div', { className: 'actions' }, note, save),
   );
   updatePreview();
@@ -722,7 +923,10 @@ function renderDone(done: Done): Node[] {
     done.memo === 'written'
       ? h('div', {
           className: 'muted',
-          textContent: "Memo updated. Reload Money Manager to see it; editing this transaction's memo before then would overwrite it.",
+          textContent:
+            done.memos > 1
+              ? `${done.memos} memos updated. Reload Money Manager to see them; editing one of these memos before then would overwrite it.`
+              : "Memo updated. Reload Money Manager to see it; editing this transaction's memo before then would overwrite it.",
         })
       : done.memo === 'skipped'
         ? null
@@ -760,9 +964,13 @@ function render() {
   const closeButton = h('button', { className: 'icon', title: 'Close', 'aria-label': 'Close', textContent: '×' });
   closeButton.addEventListener('click', close);
 
-  const body: Node[] = [...renderTransaction()];
+  const title = state.sum ? 'Sum and Split' : 'Add to Spliit';
+  const body: Node[] = state.sum ? renderSum(state.sum) : renderTransaction();
   if (state.done) body.push(...renderDone(state.done));
-  else if (state.tx) {
+  else if (state.sum?.items?.length) {
+    if (state.adding) body.push(renderAddGroup());
+    else body.push(...renderForm());
+  } else if (state.tx) {
     body.push(...renderLookup());
     const already = state.lookup?.status === 'ready' && state.lookup.value.exact.length > 0;
     if (state.adding) body.push(renderAddGroup());
@@ -779,7 +987,7 @@ function render() {
   } else if (state.adding && state.settings) body.push(renderAddGroup());
 
   panel.replaceChildren(
-    h('header', {}, h('h2', { textContent: 'Add to Spliit' }), h('span', { className: 'spacer' }), settingsButton, closeButton),
+    h('header', {}, h('h2', { textContent: title }), h('span', { className: 'spacer' }), settingsButton, closeButton),
     h('div', { className: 'content' }, ...body),
   );
 }
@@ -802,6 +1010,7 @@ export function mountPanel() {
   });
 
   const recheck = watchDrawer(onDrawerShow, (target, button) => void openDialog(target, button));
+  watchSearchBar((term) => void openSum(term));
   let count = -1;
   connectBridge((status: Status) => {
     // More transactions loaded: a drawer that matched nothing may now match.

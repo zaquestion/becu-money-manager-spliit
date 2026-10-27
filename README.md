@@ -41,6 +41,24 @@ tooltip says which group and when) and the dialog links to the expense, with
 The dialog remembers, per group, who you are and who you last split with, and,
 per Money Manager category, which Spliit category you picked.
 
+### Sum and Split
+
+For things split once a month, like groceries: on the Transactions tab, pick
+the month and search for the store (say "sprouts"), then click **Sum and
+Split** to the right of the search bar. Every transaction in the list goes
+into one Spliit expense:
+
+- titled with the search term ("Sprouts"),
+- for their total (refunds come off it),
+- dated the last day of the date filter,
+- in the category most of them have in Money Manager.
+
+Untick any you don't want in the sum. Ones already in Spliit start unticked.
+The expense's notes list each transaction with its `[mx:TRN-…]` marker, so
+each shows **✓ In Spliit** in its own drawer, and with the memo option on
+(the default, also on the settings page) each transaction's memo gets the
+link.
+
 ### Split rules
 
 On the settings page, each group can have split rules by Spliit category:
@@ -118,6 +136,11 @@ note stays until you edit it out.
   warning). No conversion is done.
 - By-amount splits can't be used for refunds: Spliit rejects shares of zero or
   less.
+- Sum and Split reads the list by scrolling through it, and only finds rows
+  Money Manager has loaded transactions for. If it can't read the date filter,
+  it dates the expense the last day of the month of the latest transaction. A summed pending
+  charge that posts under a new guid isn't recognized (sums carry no
+  look-alike fingerprints).
 
 ## License
 

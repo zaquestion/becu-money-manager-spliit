@@ -5,12 +5,12 @@
 import type { DrawerTarget } from './mx/match';
 
 const ROW_ATTR = 'data-becu-mx-spliit';
-const TEAL = 'rgb(0, 124, 137)'; // Money Manager's link/button color
+export const TEAL = 'rgb(0, 124, 137)'; // Money Manager's link/button color
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
-// "Oct 21, 2026" -> "2026-10-21"
+// "Oct 21, 2026" or "October 21st, 2026" -> "2026-10-21"
 export function parseDate(text: string): string | undefined {
-  const m = /([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),\s*(\d{4})/.exec(text);
+  const m = /([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,\s*(\d{4})/.exec(text);
   const month = m ? MONTHS.indexOf(m[1]!.toLowerCase()) : -1;
   if (!m || month < 0) return undefined;
   return `${m[3]}-${String(month + 1).padStart(2, '0')}-${m[2]!.padStart(2, '0')}`;
@@ -24,7 +24,7 @@ export function parseCents(text: string): number | undefined {
   return m[1] ? -cents : cents;
 }
 
-const text = (el: Element | null | undefined) => el?.textContent?.trim() ?? '';
+export const text = (el: Element | null | undefined) => el?.textContent?.trim() ?? '';
 
 // The `.mx-display-input` row whose label reads `name`.
 function field(drawer: Element, name: string): Element | undefined {

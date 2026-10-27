@@ -1,7 +1,7 @@
 import { defineContentScript } from '#imports';
 import { serveBridge } from '@/lib/bridge';
 import { setMemo } from '@/lib/mx/api';
-import { matchDrawer } from '@/lib/mx/match';
+import { matchDrawer, matchRows } from '@/lib/mx/match';
 import { accountNames, hasSession, installHooks, onSessionChange, transactions } from '@/lib/mx/session';
 
 export default defineContentScript({
@@ -19,6 +19,8 @@ export default defineContentScript({
         switch (call.op) {
           case 'match':
             return matchDrawer(call.target, transactions.values(), accountNames);
+          case 'matchRows':
+            return matchRows(call.targets, transactions.values(), accountNames);
           case 'loaded':
             return call.guids.filter((g) => transactions.has(g));
           case 'setMemo':

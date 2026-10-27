@@ -84,3 +84,16 @@ export function matchDrawer(target: DrawerTarget, txs: Iterable<RawTransaction>,
   const best = Math.max(...scored.map((s) => s.score));
   return scored.filter((s) => s.score === best).map((s) => s.tx);
 }
+
+// Matches each row of the Transactions list to a transaction of its own, so
+// look-alike rows (the same charge twice in a day) don't share one. Rows that
+// match nothing loaded come back null.
+export function matchRows(targets: DrawerTarget[], txs: Iterable<RawTransaction>, accountNames: Map<string, string>) {
+  const all = [...txs];
+  const used = new Set<string>();
+  return targets.map((target) => {
+    const tx = matchDrawer(target, all.filter((raw) => !used.has(raw.guid)), accountNames)[0];
+    if (tx) used.add(tx.guid);
+    return tx ?? null;
+  });
+}

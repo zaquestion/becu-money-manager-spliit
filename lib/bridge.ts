@@ -15,6 +15,7 @@ export interface Status {
 
 export type Call =
   | { op: 'match'; target: DrawerTarget }
+  | { op: 'matchRows'; targets: DrawerTarget[] } // the Transactions list's rows, for Sum and Split
   | { op: 'loaded'; guids: string[] } // which of these Money Manager has loaded
   | { op: 'setMemo'; guid: string; memo: string };
 

@@ -98,6 +98,11 @@ export const STYLE = `
   td.value { width: 90px; }
   td.share { width: 80px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
   tr.off td:not(.check) { opacity: .45; }
+  .items { max-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 2px 4px 2px 8px; }
+  td.date { width: 52px; white-space: nowrap; color: var(--muted); }
+  td.payee { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.status { width: 74px; white-space: nowrap; color: var(--muted); }
+  td.status a { color: var(--ok); font-weight: 600; text-decoration: none; }
 
   .option { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
   .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
